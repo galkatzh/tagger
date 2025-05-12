@@ -1,0 +1,596 @@
+/* General styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f5f5f5;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.container {
+    max-width: 100%;
+    height: 100vh;
+    margin: 0 auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    margin-bottom: 10px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+h1, h2, h3 {
+    margin-bottom: 8px;
+}
+
+header h1 {
+    font-size: 1.8rem;
+}
+
+button {
+    padding: 8px 16px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin: 3px;
+    transition: background-color 0.2s;
+}
+
+button:hover {
+    background-color: #3e8e41;
+}
+
+button:active {
+    transform: translateY(1px);
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* Upload section */
+.upload-section {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.upload-label {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#pdf-upload {
+    display: none;
+}
+
+/* Controls section */
+.controls-section {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+}
+
+.page-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 10px;
+}
+
+.rotation-controls {
+    display: flex;
+    align-items: center;
+}
+
+#rotation-info {
+    margin: 0 10px;
+    min-width: 80px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.annotation-instructions {
+    width: 100%;
+    margin-top: 5px;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.annotation-controls {
+    flex-basis: 100%;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.annotation-types {
+    display: flex;
+    margin-bottom: 15px;
+}
+
+.annotation-types label {
+    margin-right: 20px;
+    cursor: pointer;
+}
+
+#annotation-properties {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+#annotation-properties label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+#annotation-properties input {
+    padding: 5px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+/* Main content layout */
+.main-content {
+    display: flex;
+    gap: 15px;
+    flex: 1;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+/* Viewer section */
+.viewer-section {
+    flex: 5; /* Increase from 3 to 5 to give more space to the PDF */
+    min-width: 0; /* Needed for proper flexbox behavior */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+#pdf-container {
+    position: relative;
+    overflow: auto;
+    background-color: #888;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    flex: 1; /* Take up all available space */
+    width: 100%;
+    height: 100%;
+}
+
+#pdf-canvas {
+    display: block;
+}
+
+#annotation-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: auto;
+    z-index: 10;
+    background-color: transparent;
+}
+
+/* Annotations section */
+.annotations-section {
+    flex: 1;
+    min-width: 280px; /* Slightly increased minimum width */
+    max-width: 320px; /* Slightly decreased maximum width */
+    padding: 12px;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+#annotations-list {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 8px;
+}
+
+.annotation-item {
+    margin-bottom: 8px;
+    padding: 8px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    border-left: 4px solid #4CAF50;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.9rem;
+}
+
+.annotation-item-color {
+    border-left-color: #f44336;
+}
+
+.annotation-item-copy {
+    border-left-color: #2196F3;
+}
+
+.annotation-item-drawing {
+    border-left-color: #FF9800;
+}
+
+.annotation-item button {
+    padding: 3px 8px;
+    font-size: 11px;
+    margin-right: 5px;
+}
+
+.annotation-item .buttons {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 3px;
+}
+
+.empty-annotations-message {
+    color: #777;
+    font-style: italic;
+    text-align: center;
+    margin: 20px 0;
+}
+
+/* Demographics section */
+.demographics-section {
+    padding: 15px;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.demographics-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.demographics-section h3 {
+    margin: 0;
+}
+
+.toggle-button {
+    background: none;
+    border: none;
+    color: #4CAF50;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+}
+
+.toggle-button:hover {
+    background-color: rgba(76, 175, 80, 0.1);
+}
+
+.toggle-icon {
+    display: inline-block;
+    transition: transform 0.3s ease;
+}
+
+.toggle-button[aria-expanded="false"] .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.demographics-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.demographics-form.collapsed {
+    max-height: 0;
+    margin-top: 0;
+    padding-top: 0;
+    overflow: hidden;
+}
+
+.form-group {
+    margin-bottom: 5px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+.form-group input[type="number"],
+.form-group input[type="date"],
+.form-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.age-input-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.age-input-group input {
+    width: 70px;
+}
+
+.age-input-group span {
+    font-size: 0.85rem;
+    margin-right: 10px;
+}
+
+.radio-group {
+    display: flex;
+    gap: 15px;
+}
+
+.radio-group label {
+    font-weight: normal;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.radio-group input[type="radio"] {
+    margin: 0;
+}
+
+/* For mobile screens, stack the form to a single column */
+@media (max-width: 768px) {
+    .demographics-form {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Export section */
+.export-section {
+    text-align: center;
+    padding: 10px 0;
+    background-color: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    margin-bottom: 5px;
+    flex-shrink: 0;
+}
+
+/* Drawing rectangles */
+.annotation-rectangle {
+    position: absolute;
+    border: 2px solid;
+    background-color: rgba(255, 255, 255, 0.3);
+    pointer-events: auto;
+    cursor: move;
+}
+
+.annotation-rectangle.color {
+    border-color: #f44336;
+}
+
+.annotation-rectangle.copy {
+    border-color: #2196F3;
+}
+
+.annotation-rectangle.drawing {
+    border-color: #FF9800;
+}
+
+.annotation-rectangle.unassigned {
+    border-color: #9e9e9e;
+    border-style: dashed;
+}
+
+.annotation-delete {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 20px;
+    height: 20px;
+    background-color: red;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 20px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+/* Resize handles */
+.resize-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background-color: white;
+    border: 1px solid #777;
+    border-radius: 50%;
+    box-shadow: 0 0 3px rgba(0,0,0,0.3);
+    z-index: 20; /* Ensure it's above the annotation rectangle */
+    transition: transform 0.1s;
+}
+
+.resize-handle:hover {
+    transform: scale(1.2);
+    background-color: #f0f0f0;
+}
+
+.resize-handle.nw {
+    top: -5px;
+    left: -5px;
+    cursor: nw-resize;
+}
+
+.resize-handle.ne {
+    top: -5px;
+    right: -5px;
+    cursor: ne-resize;
+}
+
+.resize-handle.sw {
+    bottom: -5px;
+    left: -5px;
+    cursor: sw-resize;
+}
+
+.resize-handle.se {
+    bottom: -5px;
+    right: -5px;
+    cursor: se-resize;
+}
+
+/* Media Queries */
+@media (max-width: 768px) {
+    .main-content {
+        flex-direction: column;
+    }
+    
+    .annotations-section {
+        max-width: 100%;
+        height: 200px;
+    }
+    
+    .controls-section {
+        padding: 6px 10px;
+    }
+    
+    button {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+    }
+    
+    #rotation-info {
+        min-width: 60px;
+    }
+    
+    header h1 {
+        font-size: 1.5rem;
+    }
+    
+    .upload-label {
+        padding: 8px 16px;
+    }
+}
+
+/* Annotation Type Selection Modal */
+.annotation-modal {
+    position: absolute;
+    z-index: 100;
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 12px;
+    box-shadow: 0 3px 15px rgba(0,0,0,0.3);
+    max-width: 280px;
+    font-size: 0.9rem;
+}
+
+.annotation-modal h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #333;
+    font-size: 1rem;
+}
+
+.annotation-modal .type-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.annotation-modal .type-option {
+    display: flex;
+    align-items: center;
+}
+
+.annotation-modal .type-option input {
+    margin-right: 8px;
+}
+
+.annotation-modal .type-option label {
+    cursor: pointer;
+}
+
+.annotation-modal .properties {
+    margin-bottom: 12px;
+}
+
+.annotation-modal .property-input {
+    margin-bottom: 8px;
+}
+
+.annotation-modal input[type="text"],
+.annotation-modal input[type="number"] {
+    width: 100%;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    margin-top: 3px;
+}
+
+.annotation-modal .buttons {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.annotation-modal button {
+    flex: 1;
+    padding: 8px 0;
+    border-radius: 3px;
+    font-size: 0.9rem;
+}
+
+.annotation-modal button:first-child {
+    background-color: #f1f1f1;
+    color: #333;
+}
+
+.annotation-modal button:last-child {
+    background-color: #4CAF50;
+}

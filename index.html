@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Tagger</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://unpkg.com/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PDF Tagger</h1>
+        </header>
+        
+        <section class="upload-section">
+            <label for="pdf-upload" class="upload-label">Upload PDF</label>
+            <input type="file" id="pdf-upload" accept=".pdf" />
+        </section>
+        
+        <section class="controls-section">
+            <div class="page-controls">
+                <button id="prev-page" disabled>Previous</button>
+                <span id="page-info">Page 0 of 0</span>
+                <button id="next-page" disabled>Next</button>
+            </div>
+            <div class="rotation-controls">
+                <button id="rotate-left" title="Rotate page left">↶</button>
+                <span id="rotation-info">Rotation: 0°</span>
+                <button id="rotate-right" title="Rotate page right">↷</button>
+            </div>
+            <div class="annotation-instructions">
+                <p>Click and drag on the PDF to create annotation boxes. After drawing, you'll be prompted to specify the annotation type and properties.</p>
+            </div>
+        </section>
+        
+        <section class="main-content">
+            <div class="viewer-section">
+                <div id="pdf-container">
+                    <canvas id="pdf-canvas"></canvas>
+                    <div id="annotation-layer"></div>
+                </div>
+            </div>
+            
+            <div class="annotations-section">
+                <h3>Annotations</h3>
+                <div id="annotations-list"></div>
+            </div>
+        </section>
+        
+        <section class="demographics-section">
+            <div class="demographics-header">
+                <h3>Demographic Information</h3>
+                <button id="toggle-demographics" class="toggle-button" aria-expanded="true" aria-controls="demographics-content">
+                    <span class="toggle-icon">▼</span>
+                </button>
+            </div>
+            <div id="demographics-content" class="demographics-form">
+                <div class="form-group">
+                    <label for="age-years">Age:</label>
+                    <div class="age-input-group">
+                        <input type="number" id="age-years" min="0" placeholder="Years"> 
+                        <span>years</span>
+                        <input type="number" id="age-months" min="0" max="11" placeholder="Months">
+                        <span>months</span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="birth-date">Birth Date:</label>
+                    <input type="date" id="birth-date">
+                </div>
+                
+                <div class="form-group">
+                    <label>Sex:</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="sex" value="Male"> Male</label>
+                        <label><input type="radio" name="sex" value="Female"> Female</label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="mom-education">Mom's Years of Education:</label>
+                    <input type="number" id="mom-education" min="0">
+                </div>
+                
+                <div class="form-group">
+                    <label for="sibling-position">Position Among Siblings:</label>
+                    <input type="number" id="sibling-position" min="1">
+                </div>
+                
+                <div class="form-group">
+                    <label for="residence">Place of Residence:</label>
+                    <select id="residence">
+                        <option value="">Please select...</option>
+                        <option value="City">City</option>
+                        <option value="Town">Town</option>
+                        <option value="Village">Village</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="education">Education:</label>
+                    <select id="education">
+                        <option value="">Please select...</option>
+                        <option value="Home">Home</option>
+                        <option value="Nursery">Nursery</option>
+                        <option value="1st-year-kindergarten">1st year kindergarten</option>
+                        <option value="2nd-year-kindergarten">2nd year kindergarten</option>
+                        <option value="Pre-school">Pre-school</option>
+                        <option value="First-grade">First Grade</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Treated for Development:</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="development-treatment" value="Yes"> Yes</label>
+                        <label><input type="radio" name="development-treatment" value="No"> No</label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Special Education:</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="special-education" value="Yes"> Yes</label>
+                        <label><input type="radio" name="special-education" value="No"> No</label>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section class="export-section">
+            <button id="export-annotations">Export Annotations</button>
+        </section>
+    </div>
+
+    <script src="js/pdfHandler.js"></script>
+    <script src="js/annotationHandler.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
