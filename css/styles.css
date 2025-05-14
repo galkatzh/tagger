@@ -62,19 +62,15 @@ button:disabled {
     cursor: not-allowed;
 }
 
-/* Upload section */
-.upload-section {
-    margin-bottom: 20px;
-    text-align: center;
+/* Upload button */
+.upload-button {
+    /* Using the same styling as other buttons */
+    /* Button styling is already defined in the general styles section */
 }
 
-.upload-label {
-    display: inline-block;
-    padding: 10px 20px;
-    background-color: #4CAF50;
-    color: white;
-    border-radius: 4px;
+#pdf-upload-button {
     cursor: pointer;
+    width: 100%;
 }
 
 #pdf-upload {
@@ -102,16 +98,25 @@ button:disabled {
     margin-right: 10px;
 }
 
-.rotation-controls {
+.rotation-controls, .zoom-controls, .action-controls {
     display: flex;
     align-items: center;
+    margin-right: 10px;
 }
 
-#rotation-info {
+#rotation-info, #zoom-info {
     margin: 0 10px;
     min-width: 80px;
     text-align: center;
     font-size: 0.9rem;
+}
+
+.zoom-controls button {
+    min-width: 30px;
+}
+
+#zoom-reset {
+    font-size: 0.8rem;
 }
 
 .annotation-instructions {
@@ -389,16 +394,7 @@ button:disabled {
     }
 }
 
-/* Export section */
-.export-section {
-    text-align: center;
-    padding: 10px 0;
-    background-color: #fff;
-    border-radius: 4px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    margin-bottom: 5px;
-    flex-shrink: 0;
-}
+/* Export button styling moved to the controls section */
 
 /* Drawing rectangles */
 .annotation-rectangle {
@@ -503,17 +499,77 @@ button:disabled {
         font-size: 0.9rem;
     }
     
-    #rotation-info {
+    #rotation-info, #zoom-info {
         min-width: 60px;
     }
     
-    header h1 {
-        font-size: 1.5rem;
+    .zoom-controls button {
+        min-width: 25px;
+        padding: 6px 8px;
     }
     
-    .upload-label {
-        padding: 8px 16px;
-    }
+    /* Upload button styling now inherits from general button styles */
+}
+
+/* Video Popup Modal */
+.video-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+}
+
+.video-modal-content {
+    background-color: #fefefe;
+    margin: 1% auto;
+    padding: 10px;
+    border: 1px solid #888;
+    border-radius: 8px;
+    width: 96%;
+    max-width: 2000px;
+    max-height: 98vh;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.video-modal-header {
+    display: flex;
+    justify-content: flex-end;
+    padding-bottom: 10px;
+}
+
+.video-modal-body {
+    padding: 5px 0;
+}
+
+.video-close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.video-close:hover,
+.video-close:focus {
+    color: #333;
+    text-decoration: none;
+}
+
+#popup-video {
+    display: block;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    height: auto;
+    max-height: calc(95vh - 100px); /* Adjust for header and padding */
+    object-fit: contain;
 }
 
 /* Annotation Type Selection Modal */

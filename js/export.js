@@ -227,7 +227,23 @@ class ExportHandler {
             
             // Generate and download the zip file
             const zipBlob = await zip.generateAsync({ type: 'blob' });
-            saveAs(zipBlob, 'pdf_annotations.zip');
+            
+            // Get the PDF filename and use it for the zip file
+            let pdfFilename = pdfHandler.getPDFFilename();
+            
+            // Remove .pdf extension if present
+            if (pdfFilename.toLowerCase().endsWith('.pdf')) {
+                pdfFilename = pdfFilename.slice(0, -4);
+            }
+            
+            // Create zip filename
+            const zipFilename = `${pdfFilename}_annotations.zip`;
+            
+            // Log the filename
+            console.log(`Exporting annotations as: ${zipFilename}`);
+            
+            // Save the zip file
+            saveAs(zipBlob, zipFilename);
             
             console.log('Export complete');
         } catch (error) {

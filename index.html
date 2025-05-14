@@ -11,16 +11,23 @@
     <script src="https://unpkg.com/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 </head>
 <body>
+    <!-- Video Popup Modal -->
+    <div id="video-popup" class="video-modal">
+        <div class="video-modal-content">
+            <div class="video-modal-header">
+                <span class="video-close">&times;</span>
+            </div>
+            <div class="video-modal-body">
+            <h1><center> Play the Instruction Video </center></h1>
+                <video id="popup-video" width="90%" height="90%" controls autoplay>
+                    <source src="./video.mp4" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </div>
+    </div>
+    
     <div class="container">
-        <header>
-            <h1>PDF Tagger</h1>
-        </header>
-        
-        <section class="upload-section">
-            <label for="pdf-upload" class="upload-label">Upload PDF</label>
-            <input type="file" id="pdf-upload" accept=".pdf" />
-        </section>
-        
         <section class="controls-section">
             <div class="page-controls">
                 <button id="prev-page" disabled>Previous</button>
@@ -32,6 +39,19 @@
                 <span id="rotation-info">Rotation: 0°</span>
                 <button id="rotate-right" title="Rotate page right">↷</button>
             </div>
+            <div class="action-controls">
+                <button class="upload-button" id="pdf-upload-button">Upload PDF</button>
+                <input type="file" id="pdf-upload" accept=".pdf" />
+                <button id="export-annotations">Export</button>
+            </div>
+            <!-- Zoom controls commented out
+            <div class="zoom-controls">
+                <button id="zoom-out" title="Zoom out">-</button>
+                <span id="zoom-info">Zoom: 150%</span>
+                <button id="zoom-in" title="Zoom in">+</button>
+                <button id="zoom-reset" title="Reset zoom">Reset</button>
+            </div>
+            -->
             <div class="annotation-instructions">
                 <p>Click and drag on the PDF to create annotation boxes. After drawing, you'll be prompted to specify the annotation type and properties.</p>
             </div>
@@ -133,9 +153,7 @@
             </div>
         </section>
         
-        <section class="export-section">
-            <button id="export-annotations">Export Annotations</button>
-        </section>
+        <!-- Export section moved to toolbar -->
     </div>
 
     <script src="js/pdfHandler.js"></script>
