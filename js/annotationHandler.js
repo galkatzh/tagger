@@ -130,6 +130,10 @@ class AnnotationHandler {
             this.createModalPropertyInput(propertiesContainer, 'index', 'number', 'Index', 1);
             this.createModalPropertyInput(propertiesContainer, 'grade', 'number', 'Grade', 0);
             this.createModalPropertyInput(propertiesContainer, 'numLines', 'number', 'Number of lines', 0);
+            this.createModalPropertySelect(propertiesContainer, 'closure', 'Closure', ['open', 'close', 'irrelevant'], 'irrelevant');
+            this.createModalPropertySelect(propertiesContainer, 'segments', 'Segments', ['too many', 'too few', 'irrelevant'], 'irrelevant');
+            this.createModalPropertySelect(propertiesContainer, 'jerkiness', 'Jerkiness', ['fluid', 'jerky'], 'fluid');
+            this.createModalPropertySelect(propertiesContainer, 'pressure', 'Pressure', ['too much', 'too little', 'irrelevant'], 'irrelevant');
         } else if (selectedType === 'drawing') {
             // Drawing annotations have body part count
             this.createModalPropertyInput(propertiesContainer, 'bodyPartCount', 'number', 'Body Part Count', 0);
@@ -155,9 +159,36 @@ class AnnotationHandler {
         container.appendChild(div);
     }
 
+    createModalPropertySelect(container, name, label, options, defaultValue) {
+        const div = document.createElement('div');
+        div.className = 'property-input';
+        
+        const labelElement = document.createElement('label');
+        labelElement.textContent = label;
+        labelElement.setAttribute('for', `modal-${name}`);
+        
+        const select = document.createElement('select');
+        select.id = `modal-${name}`;
+        select.name = name;
+        
+        options.forEach(option => {
+            const optionElement = document.createElement('option');
+            optionElement.value = option;
+            optionElement.textContent = option;
+            if (option === defaultValue) {
+                optionElement.selected = true;
+            }
+            select.appendChild(optionElement);
+        });
+        
+        div.appendChild(labelElement);
+        div.appendChild(select);
+        container.appendChild(div);
+    }
+
     getModalPropertyValues() {
         const properties = {};
-        const inputs = this.annotationModal.querySelectorAll('#modal-properties input');
+        const inputs = this.annotationModal.querySelectorAll('#modal-properties input, #modal-properties select');
         
         inputs.forEach(input => {
             let value = input.value;
@@ -632,7 +663,7 @@ class AnnotationHandler {
                 if (annotation.type === 'color') {
                     properties = `Index: ${annotation.properties.index}, Filling: ${annotation.properties.filling}, Accuracy: ${annotation.properties.accuracy}`;
                 } else if (annotation.type === 'copy') {
-                    properties = `Index: ${annotation.properties.index}, Grade: ${annotation.properties.grade}, Lines: ${annotation.properties.numLines}`;
+                    properties = `Index: ${annotation.properties.index}, Grade: ${annotation.properties.grade}, Lines: ${annotation.properties.numLines}, Closure: ${annotation.properties.closure}, Segments: ${annotation.properties.segments}, Jerkiness: ${annotation.properties.jerkiness}, Pressure: ${annotation.properties.pressure}`;
                 } else if (annotation.type === 'drawing') {
                     properties = `Body Parts: ${annotation.properties.bodyPartCount}`;
                 }
