@@ -254,6 +254,7 @@ class AnnotationHandler {
             type: selectedType,
             properties: properties,
             page: pdfHandler.pageNum,
+            imageName: pdfHandler.getImageNameForPage ? pdfHandler.getImageNameForPage(pdfHandler.pageNum) : null,
             rotation: pdfHandler.getCurrentPageRotation(),
             position: {
                 x: left,
@@ -383,6 +384,7 @@ class AnnotationHandler {
             type: 'unassigned',
             properties: {},
             page: pdfHandler.pageNum,
+            imageName: pdfHandler.getImageNameForPage ? pdfHandler.getImageNameForPage(pdfHandler.pageNum) : null,
             rotation: pdfHandler.getCurrentPageRotation(),
             position: {
                 x: parseInt(this.currentAnnotationElement.style.left, 10),
@@ -651,7 +653,10 @@ class AnnotationHandler {
             const pageAnnotations = annotationsByPage[page];
             
             const pageHeader = document.createElement('h4');
-            pageHeader.textContent = `Page ${page} (${pageAnnotations.length} annotations)`;
+            const headerLabel = pageAnnotations[0] && pageAnnotations[0].imageName
+                ? pageAnnotations[0].imageName
+                : `Page ${page}`;
+            pageHeader.textContent = `${headerLabel} (${pageAnnotations.length} annotations)`;
             this.annotationsList.appendChild(pageHeader);
             
             pageAnnotations.forEach(annotation => {

@@ -15,6 +15,11 @@ class PDFHandler {
         this.pdfData = null;
         this.pdfFilename = null; // Store the PDF filename
 
+        // Image folder mode state
+        this.mode = 'pdf'; // 'pdf' or 'images'
+        this.imageFiles = []; // Array of { name, blob, image: HTMLImageElement }
+        this.folderName = null;
+
         // Page navigation elements
         this.prevButton = document.getElementById('prev-page');
         this.nextButton = document.getElementById('next-page');
@@ -70,9 +75,31 @@ class PDFHandler {
             // Stop any potential event propagation issues
             event.preventDefault();
             event.stopPropagation();
-            
+
             // Explicitly click the input to ensure the file dialog opens
             pdfUploadInput.click();
+        });
+
+        // Folder upload listener
+        const folderUploadInput = document.getElementById('folder-upload');
+        const folderUploadButton = document.getElementById('folder-upload-button');
+
+        folderUploadInput.addEventListener('change', (event) => {
+            const files = Array.from(event.target.files || []);
+            const imageFiles = files.filter(f => f.type.startsWith('image/'));
+            if (imageFiles.length > 0) {
+                this.loadImageFolder(imageFiles);
+            } else {
+                alert('No image files found in the selected folder.');
+            }
+            // Reset input so selecting the same folder again re-triggers change
+            folderUploadInput.value = '';
+        });
+
+        folderUploadButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            folderUploadInput.click();
         });
         
         // Keyboard shortcuts for zoom - commented out
@@ -116,50 +143,121 @@ class PDFHandler {
 
     loadPDF(file) {
         const fileReader = new FileReader();
-        
+
         // Store the filename
         this.pdfFilename = file.name;
-        
+
         fileReader.onload = async (event) => {
             this.pdfData = new Uint8Array(event.target.result);
-            
+
             try {
                 // Load PDF using PDF.js
                 const loadingTask = pdfjsLib.getDocument({ data: this.pdfData });
                 this.pdfDoc = await loadingTask.promise;
                 this.pageCount = this.pdfDoc.numPages;
-                
+
+                this.mode = 'pdf';
+                this.imageFiles = [];
+                this.folderName = null;
+
                 // Reset page navigation, rotation, and zoom
                 this.pageNum = 1;
                 this.pageRotations = {}; // Reset rotations when loading a new PDF
                 this.pageZoomLevels = {}; // Reset zoom levels when loading a new PDF
                 this.updatePageInfo();
-                
+
                 // Enable navigation buttons
                 this.prevButton.disabled = this.pageNum <= 1;
                 this.nextButton.disabled = this.pageNum >= this.pageCount;
-                
+
                 // Render the first page
                 this.renderPage(this.pageNum);
-                
+
                 // Reset annotations when loading a new PDF
                 annotationHandler.clearAnnotations();
-                
+
                 console.log('PDF loaded successfully');
             } catch (error) {
                 console.error('Error loading PDF:', error);
             }
         };
-        
+
         fileReader.readAsArrayBuffer(file);
+    }
+
+    async loadImageFolder(files) {
+        // Sort by relative path / name so order is deterministic
+        const sorted = files.slice().sort((a, b) => {
+            const pa = a.webkitRelativePath || a.name;
+            const pb = b.webkitRelativePath || b.name;
+            return pa.localeCompare(pb, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+        // Derive a folder name from the first file's relative path, if available
+        const firstPath = sorted[0].webkitRelativePath || '';
+        const slashIdx = firstPath.indexOf('/');
+        this.folderName = slashIdx > 0 ? firstPath.slice(0, slashIdx) : 'images';
+
+        // Load each image into an HTMLImageElement
+        const loaded = [];
+        for (const file of sorted) {
+            try {
+                const image = await this.loadImageElement(file);
+                loaded.push({ name: file.name, blob: file, image });
+            } catch (err) {
+                console.warn('Failed to load image:', file.name, err);
+            }
+        }
+
+        if (loaded.length === 0) {
+            alert('No images could be loaded from the selected folder.');
+            return;
+        }
+
+        this.mode = 'images';
+        this.imageFiles = loaded;
+        this.pdfDoc = null;
+        this.pdfData = null;
+        this.pdfFilename = null;
+        this.pageCount = loaded.length;
+        this.pageNum = 1;
+        this.pageRotations = {};
+        this.pageZoomLevels = {};
+
+        annotationHandler.clearAnnotations();
+
+        this.updatePageInfo();
+        this.prevButton.disabled = this.pageNum <= 1;
+        this.nextButton.disabled = this.pageNum >= this.pageCount;
+
+        this.renderPage(this.pageNum);
+        console.log(`Loaded ${loaded.length} images from folder "${this.folderName}"`);
+    }
+
+    loadImageElement(file) {
+        return new Promise((resolve, reject) => {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = (e) => {
+                URL.revokeObjectURL(url);
+                reject(e);
+            };
+            img.src = url;
+        });
     }
 
     renderPage(num) {
         this.pageRendering = true;
-        
+
         // Update page info
         this.updatePageInfo();
-        
+
+        if (this.mode === 'images') {
+            this.renderImagePage(num);
+            return;
+        }
+
         // Get the page
         this.pdfDoc.getPage(num).then((page) => {
             // Get rotation for current page (or default to 0)
@@ -211,6 +309,54 @@ class PDFHandler {
         });
     }
     
+    renderImagePage(num) {
+        const entry = this.imageFiles[num - 1];
+        if (!entry) {
+            this.pageRendering = false;
+            return;
+        }
+
+        const img = entry.image;
+        const rotation = this.pageRotations[this.pageNum] || 0;
+        const scale = this.getCurrentZoomLevel();
+
+        const baseWidth = img.naturalWidth * scale;
+        const baseHeight = img.naturalHeight * scale;
+
+        // Swap dimensions for 90/270 rotations
+        const rotated = rotation % 180 !== 0;
+        const canvasWidth = rotated ? baseHeight : baseWidth;
+        const canvasHeight = rotated ? baseWidth : baseHeight;
+
+        this.canvas.width = canvasWidth;
+        this.canvas.height = canvasHeight;
+
+        const annotationLayer = document.getElementById('annotation-layer');
+        annotationLayer.style.width = `${canvasWidth}px`;
+        annotationLayer.style.height = `${canvasHeight}px`;
+        annotationLayer.style.top = '0';
+        annotationLayer.style.left = '0';
+
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        ctx.translate(canvasWidth / 2, canvasHeight / 2);
+        ctx.rotate((rotation * Math.PI) / 180);
+        ctx.drawImage(img, -baseWidth / 2, -baseHeight / 2, baseWidth, baseHeight);
+        ctx.restore();
+
+        this.pageRendering = false;
+
+        if (this.pageNumPending !== null) {
+            const pending = this.pageNumPending;
+            this.pageNumPending = null;
+            this.renderPage(pending);
+            return;
+        }
+
+        annotationHandler.showAnnotationsForPage(this.pageNum);
+    }
+
     // Helper method to get current page's zoom level
     getCurrentZoomLevel() {
         return this.pageZoomLevels[this.pageNum] || this.defaultScale;
@@ -218,7 +364,12 @@ class PDFHandler {
 
     updatePageInfo() {
         // Update page counter
-        this.pageInfo.textContent = `Page ${this.pageNum} of ${this.pageCount}`;
+        if (this.mode === 'images') {
+            const name = this.getImageNameForPage(this.pageNum) || '';
+            this.pageInfo.textContent = `Image ${this.pageNum} of ${this.pageCount}${name ? ` — ${name}` : ''}`;
+        } else {
+            this.pageInfo.textContent = `Page ${this.pageNum} of ${this.pageCount}`;
+        }
         
         // Update rotation display
         const currentRotation = this.pageRotations[this.pageNum] || 0;
@@ -320,9 +471,40 @@ class PDFHandler {
     getPDFData() {
         return this.pdfData;
     }
-    
+
     getPDFFilename() {
         return this.pdfFilename || 'pdf_document';
+    }
+
+    getMode() {
+        return this.mode;
+    }
+
+    getImageEntry(pageNum) {
+        if (this.mode !== 'images') return null;
+        return this.imageFiles[pageNum - 1] || null;
+    }
+
+    getImageNameForPage(pageNum) {
+        const entry = this.getImageEntry(pageNum);
+        return entry ? entry.name : null;
+    }
+
+    // Returns a string suitable for folder names in the export zip
+    getPageIdentifier(pageNum) {
+        if (this.mode === 'images') {
+            const entry = this.getImageEntry(pageNum);
+            if (entry) {
+                // Strip extension for folder name
+                const dot = entry.name.lastIndexOf('.');
+                return dot > 0 ? entry.name.slice(0, dot) : entry.name;
+            }
+        }
+        return `page_${pageNum}`;
+    }
+
+    getFolderName() {
+        return this.folderName || 'images';
     }
     
     // Zoom methods
