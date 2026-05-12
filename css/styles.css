@@ -68,12 +68,13 @@ button:disabled {
     /* Button styling is already defined in the general styles section */
 }
 
-#pdf-upload-button {
+#pdf-upload-button,
+#folder-upload-button {
     cursor: pointer;
-    width: 100%;
 }
 
-#pdf-upload {
+#pdf-upload,
+#folder-upload {
     display: none;
 }
 

@@ -140,14 +140,13 @@ class ExportHandler {
         
         zip.file('demographics.csv', demographicsCSV);
         
-        // Get PDF data
-        const pdfData = pdfHandler.getPDFData();
-        
+        const mode = pdfHandler.getMode ? pdfHandler.getMode() : 'pdf';
+
         try {
-            // Create a folder for each page and store page images with annotations
+            // Create a folder for each page/image and store assets with annotations
             for (const page of Object.keys(annotationsByPage)) {
                 const pageNum = parseInt(page, 10);
-                
+
                 // Switch to the page
                 while (pdfHandler.pageNum !== pageNum) {
                     if (pdfHandler.pageNum < pageNum) {
@@ -155,46 +154,62 @@ class ExportHandler {
                     } else {
                         pdfHandler.onPrevPage();
                     }
-                    
+
                     // Wait for page to render
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
-                
-                // Get the page as an image
-                const pageImage = await pdfHandler.getPageAsImage();
-                
-                // Add page image to zip
-                zip.file(`page_${pageNum}/page_${pageNum}.png`, pageImage);
-                
-                // Create CSV for page annotations
+
+                const folder = pdfHandler.getPageIdentifier(pageNum);
                 const pageAnnotations = annotationsByPage[pageNum];
-                let csvContent = 'Type,X,Y,Width,Height,Properties\n';
-                
+
+                // Add the source asset (original image in image mode, rendered page in PDF mode)
+                if (mode === 'images') {
+                    const entry = pdfHandler.getImageEntry(pageNum);
+                    if (entry) {
+                        zip.file(`${folder}/${entry.name}`, entry.blob);
+                    }
+                } else {
+                    const pageImage = await pdfHandler.getPageAsImage();
+                    zip.file(`${folder}/page_${pageNum}.png`, pageImage);
+                }
+
+                // The rendered canvas reflects current rotation/scale and matches
+                // annotation coordinates, so use it for cropping annotation regions.
+                const renderedPage = await pdfHandler.getPageAsImage();
+
+                // Create CSV for page annotations
+                const idColumn = mode === 'images' ? 'ImageName' : 'Page';
+                let csvContent = `${idColumn},Type,X,Y,Width,Height,Properties\n`;
+
                 pageAnnotations.forEach(annotation => {
                     const propertiesStr = Object.entries(annotation.properties)
                         .map(([key, value]) => `${key}:${value}`)
                         .join(';');
-                    
-                    csvContent += `${annotation.type},${annotation.position.x},${annotation.position.y},`;
+
+                    const identifier = mode === 'images'
+                        ? (annotation.imageName || '')
+                        : annotation.page;
+
+                    csvContent += `${identifier},${annotation.type},${annotation.position.x},${annotation.position.y},`;
                     csvContent += `${annotation.position.width},${annotation.position.height},${propertiesStr}\n`;
                 });
-                
-                zip.file(`page_${pageNum}/annotations.csv`, csvContent);
-                
+
+                zip.file(`${folder}/annotations.csv`, csvContent);
+
                 // Extract each annotation as a separate image
                 for (const [index, annotation] of pageAnnotations.entries()) {
                     // Create canvas for cropping
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    
+
                     // Set canvas size to annotation dimensions
                     canvas.width = annotation.position.width;
                     canvas.height = annotation.position.height;
-                    
-                    // Create an image from the page
+
+                    // Create an image from the rendered page
                     const img = new Image();
-                    img.src = URL.createObjectURL(pageImage);
-                    
+                    img.src = URL.createObjectURL(renderedPage);
+
                     await new Promise(resolve => {
                         img.onload = () => {
                             // Draw only the portion of the page within the annotation rectangle
@@ -205,39 +220,42 @@ class ExportHandler {
                                 0, 0,
                                 annotation.position.width, annotation.position.height
                             );
-                            
+
                             // Add to zip
                             canvas.toBlob(blob => {
-                                zip.file(`page_${pageNum}/annotation_${index + 1}_${annotation.type}.png`, blob);
+                                zip.file(`${folder}/annotation_${index + 1}_${annotation.type}.png`, blob);
                                 resolve();
                             });
-                            
+
                             // Clean up
                             URL.revokeObjectURL(img.src);
                         };
                     });
-                    
+
                     // Create JSON file with annotation details
                     zip.file(
-                        `page_${pageNum}/annotation_${index + 1}_metadata.json`,
+                        `${folder}/annotation_${index + 1}_metadata.json`,
                         JSON.stringify(annotation, null, 2)
                     );
                 }
             }
-            
+
             // Generate and download the zip file
             const zipBlob = await zip.generateAsync({ type: 'blob' });
-            
-            // Get the PDF filename and use it for the zip file
-            let pdfFilename = pdfHandler.getPDFFilename();
-            
-            // Remove .pdf extension if present
-            if (pdfFilename.toLowerCase().endsWith('.pdf')) {
-                pdfFilename = pdfFilename.slice(0, -4);
+
+            // Pick a base filename based on mode
+            let baseFilename;
+            if (mode === 'images') {
+                baseFilename = pdfHandler.getFolderName ? pdfHandler.getFolderName() : 'images';
+            } else {
+                baseFilename = pdfHandler.getPDFFilename();
+                if (baseFilename.toLowerCase().endsWith('.pdf')) {
+                    baseFilename = baseFilename.slice(0, -4);
+                }
             }
-            
+
             // Create zip filename
-            const zipFilename = `${pdfFilename}_annotations.zip`;
+            const zipFilename = `${baseFilename}_annotations.zip`;
             
             // Log the filename
             console.log(`Exporting annotations as: ${zipFilename}`);
