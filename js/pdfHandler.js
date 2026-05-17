@@ -30,13 +30,11 @@ class PDFHandler {
         this.rotateLeftButton = document.getElementById('rotate-left');
         this.rotateRightButton = document.getElementById('rotate-right');
         
-        // Zoom controls - commented out
-        /*
+        // Zoom controls
         this.zoomInButton = document.getElementById('zoom-in');
         this.zoomOutButton = document.getElementById('zoom-out');
         this.zoomResetButton = document.getElementById('zoom-reset');
         this.zoomInfo = document.getElementById('zoom-info');
-        */
 
         // Initialize event listeners
         this.initEventListeners();
@@ -51,12 +49,10 @@ class PDFHandler {
         this.rotateLeftButton.addEventListener('click', () => this.rotateLeft());
         this.rotateRightButton.addEventListener('click', () => this.rotateRight());
         
-        // Zoom listeners - commented out
-        /*
+        // Zoom listeners
         this.zoomInButton.addEventListener('click', () => this.zoomIn());
         this.zoomOutButton.addEventListener('click', () => this.zoomOut());
         this.zoomResetButton.addEventListener('click', () => this.zoomReset());
-        */
 
         // PDF upload listener - improved to respond to clicks anywhere on the button
         const pdfUploadInput = document.getElementById('pdf-upload');
@@ -102,11 +98,10 @@ class PDFHandler {
             folderUploadInput.click();
         });
         
-        // Keyboard shortcuts for zoom - commented out
-        /*
+        // Keyboard shortcuts for zoom
         document.addEventListener('keydown', (event) => {
             // Check if Ctrl/Cmd key is pressed
-            if ((event.ctrlKey || event.metaKey) && this.pdfDoc) {
+            if ((event.ctrlKey || event.metaKey) && this.hasContent()) {
                 if (event.key === '+' || event.key === '=') {
                     // Zoom in with Ctrl/Cmd +
                     event.preventDefault();
@@ -122,12 +117,10 @@ class PDFHandler {
                 }
             }
         });
-        */
-        
-        // Mouse wheel zoom when Ctrl/Cmd is pressed - commented out
-        /*
+
+        // Mouse wheel zoom when Ctrl/Cmd is pressed
         this.canvas.addEventListener('wheel', (event) => {
-            if ((event.ctrlKey || event.metaKey) && this.pdfDoc) {
+            if ((event.ctrlKey || event.metaKey) && this.hasContent()) {
                 event.preventDefault();
                 if (event.deltaY < 0) {
                     // Zoom in on scroll up
@@ -138,7 +131,11 @@ class PDFHandler {
                 }
             }
         }, { passive: false });
-        */
+    }
+
+    // Returns true if a PDF or image folder is currently loaded
+    hasContent() {
+        return this.mode === 'images' ? this.imageFiles.length > 0 : !!this.pdfDoc;
     }
 
     loadPDF(file) {
@@ -375,8 +372,8 @@ class PDFHandler {
         const currentRotation = this.pageRotations[this.pageNum] || 0;
         this.rotationInfo.textContent = `Rotation: ${currentRotation}°`;
         
-        // Update zoom display - commented out
-        // this.updateZoomInfo();
+        // Update zoom display
+        this.updateZoomInfo();
         
         // Update button states
         this.prevButton.disabled = this.pageNum <= 1;
@@ -508,46 +505,41 @@ class PDFHandler {
     }
     
     // Zoom methods
-    zoomIn() {
+    // Apply a new zoom level to the current page, keeping annotations aligned
+    setZoom(newZoom) {
+        if (!this.hasContent()) return;
+
+        // Clamp to allowed range
+        newZoom = Math.max(this.minScale, Math.min(this.maxScale, newZoom));
+
         const currentZoom = this.getCurrentZoomLevel();
-        if (currentZoom < this.maxScale) {
-            this.pageZoomLevels[this.pageNum] = currentZoom + 0.25;
-            this.updateZoomInfo();
-            this.renderPage(this.pageNum);
-            console.log(`Page ${this.pageNum} zoomed in to ${Math.round(this.getCurrentZoomLevel() * 100)}%`);
+        if (newZoom === currentZoom) return;
+
+        // Rescale existing annotations on this page so they stay aligned
+        // with the content after the canvas is resized.
+        const ratio = newZoom / currentZoom;
+        if (typeof annotationHandler !== 'undefined' && annotationHandler) {
+            annotationHandler.rescaleAnnotationsForPage(this.pageNum, ratio);
         }
-    }
-    
-    zoomOut() {
-        const currentZoom = this.getCurrentZoomLevel();
-        if (currentZoom > this.minScale) {
-            this.pageZoomLevels[this.pageNum] = currentZoom - 0.25;
-            this.updateZoomInfo();
-            this.renderPage(this.pageNum);
-            console.log(`Page ${this.pageNum} zoomed out to ${Math.round(this.getCurrentZoomLevel() * 100)}%`);
-        }
-    }
-    
-    zoomReset() {
-        this.pageZoomLevels[this.pageNum] = this.defaultScale;
+
+        this.pageZoomLevels[this.pageNum] = newZoom;
         this.updateZoomInfo();
         this.renderPage(this.pageNum);
-        console.log(`Page ${this.pageNum} zoom reset to ${Math.round(this.getCurrentZoomLevel() * 100)}%`);
+        console.log(`Page ${this.pageNum} zoom set to ${Math.round(newZoom * 100)}%`);
     }
-    
-    // Apply current zoom level to all pages
-    applyZoomToAllPages() {
-        const currentZoom = this.getCurrentZoomLevel();
-        
-        // Apply current page's zoom level to all pages
-        for (let i = 1; i <= this.pageCount; i++) {
-            this.pageZoomLevels[i] = currentZoom;
-        }
-        
-        console.log(`Applied zoom level of ${Math.round(currentZoom * 100)}% to all pages`);
-        this.renderPage(this.pageNum);
+
+    zoomIn() {
+        this.setZoom(this.getCurrentZoomLevel() + 0.25);
     }
-    
+
+    zoomOut() {
+        this.setZoom(this.getCurrentZoomLevel() - 0.25);
+    }
+
+    zoomReset() {
+        this.setZoom(this.defaultScale);
+    }
+
     updateZoomInfo() {
         // Update zoom percentage display
         const currentZoom = this.getCurrentZoomLevel();

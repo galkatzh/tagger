@@ -761,6 +761,19 @@ class AnnotationHandler {
         });
     }
 
+    // Scale all annotation positions on a page by the given ratio.
+    // Used when the page zoom level changes so annotations track the content.
+    rescaleAnnotationsForPage(pageNum, ratio) {
+        if (ratio === 1) return;
+        this.annotations.forEach(annotation => {
+            if (annotation.page !== pageNum) return;
+            annotation.position.x *= ratio;
+            annotation.position.y *= ratio;
+            annotation.position.width *= ratio;
+            annotation.position.height *= ratio;
+        });
+    }
+
     clearAnnotations() {
         this.annotations = [];
         this.hideAnnotationModal();
