@@ -1,0 +1,16 @@
+{
+  "name": "pdf-tagger",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PDF/image annotation tagger",
+  "scripts": {
+    "start": "node server.js",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "jszip": "^3.10.1",
+    "pdf-lib": "^1.17.1",
+    "pngjs": "^7.0.0"
+  }
+}

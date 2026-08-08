@@ -8,6 +8,40 @@ class ExportHandler {
         this.exportButton.addEventListener('click', () => this.exportAnnotations());
     }
 
+    // Persistent banner shown for the duration of the export. pdf.js paints via
+    // requestAnimationFrame, so a backgrounded tab stalls rendering.
+    showExportNotice() {
+        let notice = document.getElementById('export-notice');
+
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'export-notice';
+            notice.className = 'export-notice';
+            notice.innerHTML = `
+                <strong>Exporting — keep this tab open and in front.</strong>
+                <span id="export-progress"></span>
+            `;
+            document.body.appendChild(notice);
+        }
+
+        notice.style.display = 'block';
+        this.notice = notice;
+        this.progressElement = document.getElementById('export-progress');
+        return notice;
+    }
+
+    setExportProgress(text) {
+        if (this.progressElement) {
+            this.progressElement.textContent = text;
+        }
+    }
+
+    hideExportNotice() {
+        if (this.notice) {
+            this.notice.style.display = 'none';
+        }
+    }
+
     // Helper method to get demographic data from the form
     getDemographicData() {
         return {
@@ -98,10 +132,22 @@ class ExportHandler {
         const totalFields = 9; // Total number of demographic fields
         const providedFields = Object.values(processedDemographicData).filter(field => field.provided).length;
         
-        // Create a JSON file with all annotation data, page rotations, and demographics
+        // Assembled while pages are rendered below, then written to the zip once
+        // every page has been captured.
         const exportData = {
             annotations: annotations,
             pageRotations: pdfHandler.pageRotations,
+            pageZoomLevels: pdfHandler.pageZoomLevels,
+            source: pdfHandler.getSourceInfo ? pdfHandler.getSourceInfo() : null,
+            pages: {},
+            notes: {
+                pageRotations: 'Absolute, not a delta: pdf.js getViewport({rotation}) '
+                    + "overrides the PDF's own /Rotate, which is recorded per page as "
+                    + 'intrinsicRotate.',
+                pageZoomLevels: 'Scale passed to getViewport(). Required to reproduce the '
+                    + 'exported pixel dimensions from the source file.',
+                view: "The pdf.js page.view box ([x0, y0, x1, y1]) in PDF user space."
+            },
             demographics: {
                 data: processedDemographicData,
                 summary: {
@@ -111,8 +157,7 @@ class ExportHandler {
                 }
             }
         };
-        zip.file('annotations.json', JSON.stringify(exportData, null, 2));
-        
+
         // Create CSV file for demographics
         let demographicsCSV = 'Field,Value,Provided\n';
         
@@ -141,41 +186,69 @@ class ExportHandler {
         zip.file('demographics.csv', demographicsCSV);
         
         const mode = pdfHandler.getMode ? pdfHandler.getMode() : 'pdf';
+        const pageNumbers = Object.keys(annotationsByPage)
+            .map(page => parseInt(page, 10))
+            .sort((a, b) => a - b);
+        const startingPage = pdfHandler.pageNum;
+
+        this.showExportNotice();
+        this.exportButton.disabled = true;
 
         try {
             // Create a folder for each page/image and store assets with annotations
-            for (const page of Object.keys(annotationsByPage)) {
-                const pageNum = parseInt(page, 10);
+            for (const [pageIndex, pageNum] of pageNumbers.entries()) {
+                this.setExportProgress(`Page ${pageNum} (${pageIndex + 1} of ${pageNumbers.length})`);
 
-                // Switch to the page
-                while (pdfHandler.pageNum !== pageNum) {
-                    if (pdfHandler.pageNum < pageNum) {
-                        pdfHandler.onNextPage();
-                    } else {
-                        pdfHandler.onPrevPage();
+                // Navigate and wait for the render to actually finish
+                await pdfHandler.gotoPage(pageNum);
+
+                // A blank canvas means pdf.js pre-filled white and never painted
+                // content. Retry once, then fail loudly rather than shipping a
+                // white page with perfect-looking annotation metadata.
+                if (pdfHandler.isCanvasBlank()) {
+                    console.warn(`Page ${pageNum} rendered blank — re-rendering`);
+                    await pdfHandler.renderPage(pageNum);
+
+                    if (pdfHandler.isCanvasBlank()) {
+                        throw new Error(
+                            `Page ${pageNum} rendered as a blank canvas. Export aborted so no `
+                            + 'blank pages are saved. Keep this tab in the foreground and retry.'
+                        );
                     }
-
-                    // Wait for page to render
-                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
 
                 const folder = pdfHandler.getPageIdentifier(pageNum);
                 const pageAnnotations = annotationsByPage[pageNum];
+
+                // Captured once and reused for both the page PNG and the crops.
+                // The rendered canvas reflects current rotation/scale and matches
+                // annotation coordinates.
+                const renderedPage = await pdfHandler.getPageAsImage();
+
+                // Record what was actually rendered, so the export can be
+                // reproduced from the source file without guesswork.
+                const provenance = {
+                    canvasWidth: pdfHandler.canvas.width,
+                    canvasHeight: pdfHandler.canvas.height,
+                    rotation: pdfHandler.getPageRotation(pageNum),
+                    zoom: pdfHandler.getCurrentZoomLevel(pageNum),
+                    ...(await pdfHandler.getPageProvenance(pageNum) || {})
+                };
+                exportData.pages[pageNum] = provenance;
 
                 // Add the source asset (original image in image mode, rendered page in PDF mode)
                 if (mode === 'images') {
                     const entry = pdfHandler.getImageEntry(pageNum);
                     if (entry) {
                         zip.file(`${folder}/${entry.name}`, entry.blob);
+                        provenance.sourceFile = entry.name;
+                        provenance.sourceSha256 = await pdfHandler.sha256Hex(
+                            new Uint8Array(await entry.blob.arrayBuffer())
+                        );
                     }
                 } else {
-                    const pageImage = await pdfHandler.getPageAsImage();
-                    zip.file(`${folder}/page_${pageNum}.png`, pageImage);
+                    zip.file(`${folder}/page_${pageNum}.png`, renderedPage);
                 }
-
-                // The rendered canvas reflects current rotation/scale and matches
-                // annotation coordinates, so use it for cropping annotation regions.
-                const renderedPage = await pdfHandler.getPageAsImage();
 
                 // Create CSV for page annotations
                 const idColumn = mode === 'images' ? 'ImageName' : 'Page';
@@ -196,51 +269,49 @@ class ExportHandler {
 
                 zip.file(`${folder}/annotations.csv`, csvContent);
 
-                // Extract each annotation as a separate image
-                for (const [index, annotation] of pageAnnotations.entries()) {
-                    // Create canvas for cropping
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
+                // Decode the page image once and crop every annotation from it
+                const pageImageUrl = URL.createObjectURL(renderedPage);
 
-                    // Set canvas size to annotation dimensions
-                    canvas.width = annotation.position.width;
-                    canvas.height = annotation.position.height;
+                try {
+                    const pageImg = await this.loadImage(pageImageUrl);
 
-                    // Create an image from the rendered page
-                    const img = new Image();
-                    img.src = URL.createObjectURL(renderedPage);
+                    // Extract each annotation as a separate image
+                    for (const [index, annotation] of pageAnnotations.entries()) {
+                        // Create canvas for cropping
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
 
-                    await new Promise(resolve => {
-                        img.onload = () => {
-                            // Draw only the portion of the page within the annotation rectangle
-                            ctx.drawImage(
-                                img,
-                                annotation.position.x, annotation.position.y,
-                                annotation.position.width, annotation.position.height,
-                                0, 0,
-                                annotation.position.width, annotation.position.height
-                            );
+                        // Set canvas size to annotation dimensions
+                        canvas.width = annotation.position.width;
+                        canvas.height = annotation.position.height;
 
-                            // Add to zip
-                            canvas.toBlob(blob => {
-                                zip.file(`${folder}/annotation_${index + 1}_${annotation.type}.png`, blob);
-                                resolve();
-                            });
+                        // Draw only the portion of the page within the annotation rectangle
+                        ctx.drawImage(
+                            pageImg,
+                            annotation.position.x, annotation.position.y,
+                            annotation.position.width, annotation.position.height,
+                            0, 0,
+                            annotation.position.width, annotation.position.height
+                        );
 
-                            // Clean up
-                            URL.revokeObjectURL(img.src);
-                        };
-                    });
+                        const cropBlob = await new Promise(resolve => canvas.toBlob(resolve));
+                        zip.file(`${folder}/annotation_${index + 1}_${annotation.type}.png`, cropBlob);
 
-                    // Create JSON file with annotation details
-                    zip.file(
-                        `${folder}/annotation_${index + 1}_metadata.json`,
-                        JSON.stringify(annotation, null, 2)
-                    );
+                        // Create JSON file with annotation details
+                        zip.file(
+                            `${folder}/annotation_${index + 1}_metadata.json`,
+                            JSON.stringify(annotation, null, 2)
+                        );
+                    }
+                } finally {
+                    URL.revokeObjectURL(pageImageUrl);
                 }
             }
 
+            zip.file('annotations.json', JSON.stringify(exportData, null, 2));
+
             // Generate and download the zip file
+            this.setExportProgress('Building zip…');
             const zipBlob = await zip.generateAsync({ type: 'blob' });
 
             // Pick a base filename based on mode
@@ -266,7 +337,24 @@ class ExportHandler {
             console.log('Export complete');
         } catch (error) {
             console.error('Error during export:', error);
-            alert('Error during export. See console for details.');
+            alert(`Error during export: ${error.message}\n\nSee console for details.`);
+        } finally {
+            this.hideExportNotice();
+            this.exportButton.disabled = false;
+
+            // Return to wherever the user was before exporting
+            if (pdfHandler.pageNum !== startingPage) {
+                pdfHandler.reportRenderError(pdfHandler.gotoPage(startingPage));
+            }
         }
+    }
+
+    loadImage(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error(`Could not decode rendered page image`));
+            img.src = src;
+        });
     }
 }
