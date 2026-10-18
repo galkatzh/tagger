@@ -651,3 +651,25 @@ button:disabled {
 .annotation-modal button:last-child {
     background-color: #4CAF50;
 }
+/* Export progress banner. pdf.js renders via requestAnimationFrame, which is
+   suspended in background tabs, so the user must keep the tab in front. */
+.export-notice {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2000;
+    padding: 10px 16px;
+    background-color: #ffefc2;
+    border-bottom: 1px solid #e0b400;
+    color: #5c4600;
+    font-size: 0.95rem;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.export-notice #export-progress {
+    margin-left: 10px;
+    font-variant-numeric: tabular-nums;
+}

@@ -774,6 +774,29 @@ class AnnotationHandler {
         });
     }
 
+    // Rotate stored annotation positions on a page by ±90° so they follow the
+    // canvas when the page is rotated. `oldWidth`/`oldHeight` are the canvas
+    // dimensions before the rotation (the canvas axes swap afterwards).
+    rotateAnnotationsForPage(pageNum, degrees, oldWidth, oldHeight, newRotation) {
+        const normalized = (((degrees % 360) + 360) % 360);
+        if (normalized !== 90 && normalized !== 270) return;
+        if (!oldWidth || !oldHeight) return;
+
+        const clockwise = normalized === 90;
+
+        this.annotations.forEach(annotation => {
+            if (annotation.page !== pageNum) return;
+
+            const { x, y, width, height } = annotation.position;
+            annotation.position = clockwise
+                ? { x: oldHeight - y - height, y: x, width: height, height: width }
+                : { x: y, y: oldWidth - x - width, width: height, height: width };
+            annotation.rotation = newRotation;
+        });
+
+        this.updateAnnotationsList();
+    }
+
     clearAnnotations() {
         this.annotations = [];
         this.hideAnnotationModal();

@@ -9,11 +9,15 @@ class PDFHandler {
         this.maxScale = 3.0;   // Maximum zoom level
         this.defaultScale = 1.5; // Default zoom level
         this.pageZoomLevels = {}; // Store zoom level for each page individually
+        this.pageCanvasSizes = {}; // Canvas size each page's annotations are expressed in
         this.canvas = document.getElementById('pdf-canvas');
         this.ctx = this.canvas.getContext('2d');
         this.pageRotations = {}; // Store rotation for each page individually
         this.pdfData = null;
         this.pdfFilename = null; // Store the PDF filename
+        this.pdfSha256 = null;   // SHA-256 of the source file's bytes
+        this.pdfByteLength = null;
+        this._renderTask = null; // In-flight pdf.js RenderTask, if any
 
         // Image folder mode state
         this.mode = 'pdf'; // 'pdf' or 'images'
@@ -42,17 +46,17 @@ class PDFHandler {
 
     initEventListeners() {
         // Page navigation listeners
-        this.prevButton.addEventListener('click', () => this.onPrevPage());
-        this.nextButton.addEventListener('click', () => this.onNextPage());
+        this.prevButton.addEventListener('click', () => this.reportRenderError(this.onPrevPage()));
+        this.nextButton.addEventListener('click', () => this.reportRenderError(this.onNextPage()));
 
         // Rotation listeners
-        this.rotateLeftButton.addEventListener('click', () => this.rotateLeft());
-        this.rotateRightButton.addEventListener('click', () => this.rotateRight());
-        
+        this.rotateLeftButton.addEventListener('click', () => this.reportRenderError(this.rotateLeft()));
+        this.rotateRightButton.addEventListener('click', () => this.reportRenderError(this.rotateRight()));
+
         // Zoom listeners
-        this.zoomInButton.addEventListener('click', () => this.zoomIn());
-        this.zoomOutButton.addEventListener('click', () => this.zoomOut());
-        this.zoomResetButton.addEventListener('click', () => this.zoomReset());
+        this.zoomInButton.addEventListener('click', () => this.reportRenderError(this.zoomIn()));
+        this.zoomOutButton.addEventListener('click', () => this.reportRenderError(this.zoomOut()));
+        this.zoomResetButton.addEventListener('click', () => this.reportRenderError(this.zoomReset()));
 
         // PDF upload listener - improved to respond to clicks anywhere on the button
         const pdfUploadInput = document.getElementById('pdf-upload');
@@ -105,15 +109,15 @@ class PDFHandler {
                 if (event.key === '+' || event.key === '=') {
                     // Zoom in with Ctrl/Cmd +
                     event.preventDefault();
-                    this.zoomIn();
+                    this.reportRenderError(this.zoomIn());
                 } else if (event.key === '-') {
                     // Zoom out with Ctrl/Cmd -
                     event.preventDefault();
-                    this.zoomOut();
+                    this.reportRenderError(this.zoomOut());
                 } else if (event.key === '0') {
                     // Reset zoom with Ctrl/Cmd 0
                     event.preventDefault();
-                    this.zoomReset();
+                    this.reportRenderError(this.zoomReset());
                 }
             }
         });
@@ -124,10 +128,10 @@ class PDFHandler {
                 event.preventDefault();
                 if (event.deltaY < 0) {
                     // Zoom in on scroll up
-                    this.zoomIn();
+                    this.reportRenderError(this.zoomIn());
                 } else {
                     // Zoom out on scroll down
-                    this.zoomOut();
+                    this.reportRenderError(this.zoomOut());
                 }
             }
         }, { passive: false });
@@ -138,6 +142,21 @@ class PDFHandler {
         return this.mode === 'images' ? this.imageFiles.length > 0 : !!this.pdfDoc;
     }
 
+    // Logs render failures from fire-and-forget UI handlers. Cancellations are
+    // expected whenever a newer render supersedes an older one.
+    reportRenderError(maybePromise) {
+        if (!maybePromise || typeof maybePromise.catch !== 'function') return maybePromise;
+        return maybePromise.catch((error) => {
+            if (!this.isRenderingCancelled(error)) {
+                console.error('Render failed:', error);
+            }
+        });
+    }
+
+    isRenderingCancelled(error) {
+        return !!error && error.name === 'RenderingCancelledException';
+    }
+
     loadPDF(file) {
         const fileReader = new FileReader();
 
@@ -146,6 +165,11 @@ class PDFHandler {
 
         fileReader.onload = async (event) => {
             this.pdfData = new Uint8Array(event.target.result);
+            this.pdfByteLength = this.pdfData.byteLength;
+
+            // Hash the bytes before handing them to pdf.js, which may transfer
+            // (and thereby detach) the underlying buffer.
+            this.pdfSha256 = await this.sha256Hex(this.pdfData);
 
             try {
                 // Load PDF using PDF.js
@@ -161,17 +185,18 @@ class PDFHandler {
                 this.pageNum = 1;
                 this.pageRotations = {}; // Reset rotations when loading a new PDF
                 this.pageZoomLevels = {}; // Reset zoom levels when loading a new PDF
+                this.pageCanvasSizes = {};
                 this.updatePageInfo();
 
                 // Enable navigation buttons
                 this.prevButton.disabled = this.pageNum <= 1;
                 this.nextButton.disabled = this.pageNum >= this.pageCount;
 
-                // Render the first page
-                this.renderPage(this.pageNum);
-
                 // Reset annotations when loading a new PDF
                 annotationHandler.clearAnnotations();
+
+                // Render the first page
+                await this.renderPage(this.pageNum);
 
                 console.log('PDF loaded successfully');
             } catch (error) {
@@ -220,6 +245,7 @@ class PDFHandler {
         this.pageNum = 1;
         this.pageRotations = {};
         this.pageZoomLevels = {};
+        this.pageCanvasSizes = {};
 
         annotationHandler.clearAnnotations();
 
@@ -227,7 +253,7 @@ class PDFHandler {
         this.prevButton.disabled = this.pageNum <= 1;
         this.nextButton.disabled = this.pageNum >= this.pageCount;
 
-        this.renderPage(this.pageNum);
+        await this.renderPage(this.pageNum);
         console.log(`Loaded ${loaded.length} images from folder "${this.folderName}"`);
     }
 
@@ -244,78 +270,131 @@ class PDFHandler {
         });
     }
 
-    renderPage(num) {
+    // Renders page `num` and resolves only once the canvas actually holds the
+    // painted page. Callers may await this; a rejection means nothing usable
+    // was drawn (never a silently blank canvas).
+    renderPage(num, options = {}) {
         this.pageRendering = true;
 
+        // Tell any in-flight render to stop right away, then queue behind it:
+        // pdf.js throws if two render() calls target the same canvas at once.
+        const cancelling = this.cancelInFlightRender();
+
+        const promise = Promise.resolve(this._renderChain)
+            .catch(() => {})
+            .then(() => cancelling)
+            .then(() => {
+                // A newer navigation superseded this coalescable request
+                if (options.coalesce && this.pageNumPending !== num) return;
+                return this._renderPage(num);
+            })
+            .finally(() => {
+                if (this._renderChain === promise) {
+                    this.pageRendering = false;
+                }
+            });
+
+        this._renderChain = promise;
+        // Callers may ignore the promise; don't let that surface as an
+        // unhandled rejection.
+        promise.catch(() => {});
+        return promise;
+    }
+
+    async _renderPage(num) {
         // Update page info
         this.updatePageInfo();
 
         if (this.mode === 'images') {
             this.renderImagePage(num);
-            return;
+        } else {
+            await this.renderPdfPage(num);
         }
 
-        // Get the page
-        this.pdfDoc.getPage(num).then((page) => {
-            // Get rotation for current page (or default to 0)
-            const rotation = this.pageRotations[this.pageNum] || 0;
-            
-            // Get zoom level for current page (or default to defaultScale)
-            const scale = this.getCurrentZoomLevel();
-            
-            // Calculate viewport with rotation and scale
-            const viewport = page.getViewport({ scale: scale, rotation: rotation });
-            
-            // Set canvas dimensions to match viewport
-            this.canvas.height = viewport.height;
-            this.canvas.width = viewport.width;
-            
-            // Adjust annotation layer size
-            const annotationLayer = document.getElementById('annotation-layer');
-            annotationLayer.style.width = `${viewport.width}px`;
-            annotationLayer.style.height = `${viewport.height}px`;
-            
-            // Reset the position to match the canvas
-            annotationLayer.style.top = '0';
-            annotationLayer.style.left = '0';
-            
-            console.log('Annotation layer set to:', viewport.width, viewport.height);
-            
-            // Prepare canvas for rendering
-            const renderContext = {
-                canvasContext: this.ctx,
-                viewport: viewport
-            };
-            
-            // Render the page
-            const renderTask = page.render(renderContext);
-            
-            // Wait for rendering to finish
-            renderTask.promise.then(() => {
-                this.pageRendering = false;
-                
-                // If another page is pending, render it immediately
-                if (this.pageNumPending !== null) {
-                    this.renderPage(this.pageNumPending);
-                    this.pageNumPending = null;
-                }
-                
-                // Refresh annotations for this page
-                annotationHandler.showAnnotationsForPage(this.pageNum);
-            });
-        });
+        // Refresh annotations for this page
+        annotationHandler.showAnnotationsForPage(num);
     }
-    
+
+    async renderPdfPage(num) {
+        let page;
+        try {
+            page = await this.pdfDoc.getPage(num);
+        } catch (error) {
+            console.error(`Failed to get page ${num}:`, error);
+            throw error;
+        }
+
+        // Rotation and zoom must come from the page being rendered, not from
+        // this.pageNum, which may already point at a different page.
+        const rotation = this.getPageRotation(num);
+        const scale = this.getCurrentZoomLevel(num);
+
+        // Calculate viewport with rotation and scale
+        const viewport = page.getViewport({ scale: scale, rotation: rotation });
+
+        // Set canvas dimensions to match viewport (this also clears the bitmap)
+        this.canvas.height = viewport.height;
+        this.canvas.width = viewport.width;
+        this.pageCanvasSizes[num] = { width: viewport.width, height: viewport.height };
+
+        // Adjust annotation layer size
+        const annotationLayer = document.getElementById('annotation-layer');
+        annotationLayer.style.width = `${viewport.width}px`;
+        annotationLayer.style.height = `${viewport.height}px`;
+
+        // Reset the position to match the canvas
+        annotationLayer.style.top = '0';
+        annotationLayer.style.left = '0';
+
+        console.log('Annotation layer set to:', viewport.width, viewport.height);
+
+        // Render the page
+        const renderTask = page.render({
+            canvasContext: this.ctx,
+            viewport: viewport
+        });
+        this._renderTask = renderTask;
+
+        try {
+            await renderTask.promise;
+        } catch (error) {
+            if (!this.isRenderingCancelled(error)) {
+                console.error(`Rendering page ${num} failed:`, error);
+            }
+            throw error;
+        } finally {
+            if (this._renderTask === renderTask) {
+                this._renderTask = null;
+            }
+        }
+    }
+
+    // Cancels the in-flight render, if any, swallowing the resulting
+    // RenderingCancelledException.
+    async cancelInFlightRender() {
+        const task = this._renderTask;
+        if (!task) return;
+        this._renderTask = null;
+
+        try {
+            task.cancel();
+            await task.promise;
+        } catch (error) {
+            if (!this.isRenderingCancelled(error)) {
+                console.warn('Error while cancelling in-flight render:', error);
+            }
+        }
+    }
+
     renderImagePage(num) {
         const entry = this.imageFiles[num - 1];
         if (!entry) {
-            this.pageRendering = false;
-            return;
+            throw new Error(`No image loaded for page ${num}`);
         }
 
         const img = entry.image;
-        const rotation = this.pageRotations[this.pageNum] || 0;
-        const scale = this.getCurrentZoomLevel();
+        const rotation = this.getPageRotation(num);
+        const scale = this.getCurrentZoomLevel(num);
 
         const baseWidth = img.naturalWidth * scale;
         const baseHeight = img.naturalHeight * scale;
@@ -327,6 +406,7 @@ class PDFHandler {
 
         this.canvas.width = canvasWidth;
         this.canvas.height = canvasHeight;
+        this.pageCanvasSizes[num] = { width: canvasWidth, height: canvasHeight };
 
         const annotationLayer = document.getElementById('annotation-layer');
         annotationLayer.style.width = `${canvasWidth}px`;
@@ -341,22 +421,23 @@ class PDFHandler {
         ctx.rotate((rotation * Math.PI) / 180);
         ctx.drawImage(img, -baseWidth / 2, -baseHeight / 2, baseWidth, baseHeight);
         ctx.restore();
-
-        this.pageRendering = false;
-
-        if (this.pageNumPending !== null) {
-            const pending = this.pageNumPending;
-            this.pageNumPending = null;
-            this.renderPage(pending);
-            return;
-        }
-
-        annotationHandler.showAnnotationsForPage(this.pageNum);
     }
 
-    // Helper method to get current page's zoom level
-    getCurrentZoomLevel() {
-        return this.pageZoomLevels[this.pageNum] || this.defaultScale;
+    // Zoom level of a specific page (defaults to the current page)
+    getCurrentZoomLevel(num = this.pageNum) {
+        return this.pageZoomLevels[num] || this.defaultScale;
+    }
+
+    // Rotation of a specific page (defaults to the current page)
+    getPageRotation(num = this.pageNum) {
+        return this.pageRotations[num] || 0;
+    }
+
+    // Canvas size that a page's stored annotation positions are expressed in.
+    // Tracked separately from the live canvas so back-to-back rotate/zoom
+    // clicks compose correctly even before the next render lands.
+    getAnnotationSpaceSize(num = this.pageNum) {
+        return this.pageCanvasSizes[num] || { width: this.canvas.width, height: this.canvas.height };
     }
 
     updatePageInfo() {
@@ -380,73 +461,111 @@ class PDFHandler {
         this.nextButton.disabled = this.pageNum >= this.pageCount;
     }
 
+    // Returns a promise that resolves once `num` has rendered, or earlier if a
+    // newer navigation supersedes it (rapid paging skips intermediate pages).
     queueRenderPage(num) {
-        if (this.pageRendering) {
-            this.pageNumPending = num;
-        } else {
-            this.renderPage(num);
-        }
+        this.pageNumPending = num;
+        return this.renderPage(num, { coalesce: true });
     }
 
     onPrevPage() {
-        if (this.pageNum <= 1) return;
+        if (this.pageNum <= 1) return Promise.resolve();
         this.pageNum--;
-        this.queueRenderPage(this.pageNum);
-        
+
         // Update rotation and zoom info for the new page
         this.updatePageInfo();
+
+        return this.queueRenderPage(this.pageNum);
     }
 
     onNextPage() {
-        if (this.pageNum >= this.pageCount) return;
+        if (this.pageNum >= this.pageCount) return Promise.resolve();
         this.pageNum++;
-        this.queueRenderPage(this.pageNum);
-        
+
         // Update rotation and zoom info for the new page
         this.updatePageInfo();
+
+        return this.queueRenderPage(this.pageNum);
+    }
+
+    // Navigates to `num` and resolves only after that page is fully rendered.
+    // Waits for the tab to be visible first: pdf.js paints via
+    // requestAnimationFrame, which is suspended in background tabs.
+    async gotoPage(num) {
+        if (!this.hasContent()) {
+            throw new Error('No document loaded');
+        }
+        if (!Number.isInteger(num) || num < 1 || num > this.pageCount) {
+            throw new Error(`Page ${num} is out of range (1-${this.pageCount})`);
+        }
+
+        await this.waitUntilVisible();
+
+        this.pageNum = num;
+        this.pageNumPending = null;
+        this.updatePageInfo();
+
+        await this.renderPage(num);
+        return num;
+    }
+
+    // Resolves immediately when the tab is in the foreground, otherwise on the
+    // next visibilitychange that brings it back.
+    waitUntilVisible() {
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve) => {
+            const onVisibilityChange = () => {
+                if (document.visibilityState === 'visible') {
+                    document.removeEventListener('visibilitychange', onVisibilityChange);
+                    resolve();
+                }
+            };
+            document.addEventListener('visibilitychange', onVisibilityChange);
+        });
     }
 
     rotateLeft() {
-        // Get current rotation or default to 0
-        let currentRotation = this.pageRotations[this.pageNum] || 0;
-        
-        // Calculate new rotation
-        currentRotation = (currentRotation - 90) % 360;
-        if (currentRotation < 0) currentRotation += 360;
-        
-        // Store new rotation for this page
-        this.pageRotations[this.pageNum] = currentRotation;
-        
-        console.log(`Page ${this.pageNum} rotated left to ${currentRotation} degrees`);
-        
-        // Update rotation info display
-        this.rotationInfo.textContent = `Rotation: ${currentRotation}°`;
-        
-        // Re-render the page with new rotation
-        this.renderPage(this.pageNum);
+        return this.rotatePage(-90);
     }
 
     rotateRight() {
-        // Get current rotation or default to 0
-        let currentRotation = this.pageRotations[this.pageNum] || 0;
-        
-        // Calculate new rotation
-        currentRotation = (currentRotation + 90) % 360;
-        
+        return this.rotatePage(90);
+    }
+
+    // Rotates the current page by ±90° and moves stored annotations with it, so
+    // annotation.rotation can never disagree with pageRotations.
+    async rotatePage(degrees) {
+        if (!this.hasContent()) return;
+
+        const pageNum = this.pageNum;
+        const currentRotation = this.getPageRotation(pageNum);
+        const newRotation = (((currentRotation + degrees) % 360) + 360) % 360;
+
+        // Map positions using the coordinate space the annotations are stored
+        // in, which a still-pending render has not applied to the canvas yet.
+        const { width: oldWidth, height: oldHeight } = this.getAnnotationSpaceSize(pageNum);
+        if (typeof annotationHandler !== 'undefined' && annotationHandler) {
+            annotationHandler.rotateAnnotationsForPage(pageNum, degrees, oldWidth, oldHeight, newRotation);
+        }
+        this.pageCanvasSizes[pageNum] = { width: oldHeight, height: oldWidth };
+
         // Store new rotation for this page
-        this.pageRotations[this.pageNum] = currentRotation;
-        
-        console.log(`Page ${this.pageNum} rotated right to ${currentRotation} degrees`);
-        
+        this.pageRotations[pageNum] = newRotation;
+
+        console.log(`Page ${pageNum} rotated to ${newRotation} degrees`);
+
         // Update rotation info display
-        this.rotationInfo.textContent = `Rotation: ${currentRotation}°`;
-        
+        this.rotationInfo.textContent = `Rotation: ${newRotation}°`;
+
         // Re-render the page with new rotation
-        this.renderPage(this.pageNum);
+        await this.renderPage(pageNum);
     }
 
     getCurrentPageRotation() {
-        return this.pageRotations[this.pageNum] || 0;
+        return this.getPageRotation(this.pageNum);
     }
 
     getPageDimensions() {
@@ -463,6 +582,65 @@ class PDFHandler {
                 resolve(blob);
             }, 'image/png');
         });
+    }
+
+    // True when every sampled pixel is opaque white — the signature of a canvas
+    // that pdf.js pre-filled but never painted content onto.
+    isCanvasBlank(samplesPerAxis = 8) {
+        const { width, height } = this.canvas;
+        if (!width || !height) return true;
+
+        for (let i = 0; i < samplesPerAxis; i++) {
+            for (let j = 0; j < samplesPerAxis; j++) {
+                const x = Math.min(width - 1, Math.floor(((i + 0.5) / samplesPerAxis) * width));
+                const y = Math.min(height - 1, Math.floor(((j + 0.5) / samplesPerAxis) * height));
+                const [r, g, b, a] = this.ctx.getImageData(x, y, 1, 1).data;
+                if (r !== 255 || g !== 255 || b !== 255 || a !== 255) return false;
+            }
+        }
+        return true;
+    }
+
+    // Source-page geometry, for reproducing an export from the original file.
+    async getPageProvenance(num) {
+        if (this.mode !== 'pdf' || !this.pdfDoc) return null;
+
+        try {
+            const page = await this.pdfDoc.getPage(num);
+            return {
+                // PDF user-space box [x0, y0, x1, y1]
+                view: page.view,
+                // The PDF's own /Rotate; getViewport({rotation}) overrides it
+                intrinsicRotate: page.rotate
+            };
+        } catch (error) {
+            console.warn(`Could not read provenance for page ${num}:`, error);
+            return null;
+        }
+    }
+
+    getSourceInfo() {
+        return {
+            mode: this.mode,
+            pdfjsVersion: (typeof pdfjsLib !== 'undefined' && pdfjsLib.version) || null,
+            filename: this.mode === 'images' ? this.getFolderName() : this.pdfFilename,
+            byteLength: this.pdfByteLength,
+            sha256: this.pdfSha256
+        };
+    }
+
+    async sha256Hex(bytes) {
+        if (!bytes || typeof crypto === 'undefined' || !crypto.subtle) return null;
+
+        try {
+            const digest = await crypto.subtle.digest('SHA-256', bytes);
+            return Array.from(new Uint8Array(digest))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        } catch (error) {
+            console.warn('Could not hash source bytes:', error);
+            return null;
+        }
     }
 
     getPDFData() {
@@ -522,22 +700,28 @@ class PDFHandler {
             annotationHandler.rescaleAnnotationsForPage(this.pageNum, ratio);
         }
 
+        const size = this.getAnnotationSpaceSize(this.pageNum);
+        this.pageCanvasSizes[this.pageNum] = {
+            width: size.width * ratio,
+            height: size.height * ratio
+        };
+
         this.pageZoomLevels[this.pageNum] = newZoom;
         this.updateZoomInfo();
-        this.renderPage(this.pageNum);
         console.log(`Page ${this.pageNum} zoom set to ${Math.round(newZoom * 100)}%`);
+        return this.renderPage(this.pageNum);
     }
 
     zoomIn() {
-        this.setZoom(this.getCurrentZoomLevel() + 0.25);
+        return this.setZoom(this.getCurrentZoomLevel() + 0.25);
     }
 
     zoomOut() {
-        this.setZoom(this.getCurrentZoomLevel() - 0.25);
+        return this.setZoom(this.getCurrentZoomLevel() - 0.25);
     }
 
     zoomReset() {
-        this.setZoom(this.defaultScale);
+        return this.setZoom(this.defaultScale);
     }
 
     updateZoomInfo() {
